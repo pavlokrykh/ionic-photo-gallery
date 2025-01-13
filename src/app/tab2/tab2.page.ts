@@ -1,18 +1,19 @@
-import { Component, inject } from '@angular/core';
-import { IonImg, IonIcon, IonCol, IonRow, IonGrid, IonFabButton, IonFab, IonHeader, IonToolbar, IonTitle, IonContent } from '@ionic/angular/standalone';
-import { ExploreContainerComponent } from '../explore-container/explore-container.component';
+import { Component, inject, OnInit } from '@angular/core';
+import { IonImg, IonGrid, IonIcon, IonCol, IonRow, IonFabButton, IonFab, IonHeader, IonToolbar, IonTitle, IonContent } from '@ionic/angular/standalone';
 import { PhotoService } from '../services/photo.service';
 
 @Component({
   selector: 'app-tab2',
   templateUrl: 'tab2.page.html',
   styleUrls: ['tab2.page.scss'],
-  imports: [IonIcon, IonImg, IonCol, IonRow, IonGrid, IonFabButton, IonFab, IonHeader, IonToolbar, IonTitle, IonContent, ExploreContainerComponent]
+  imports: [IonIcon, IonGrid, IonImg, IonCol, IonRow, IonFabButton, IonFab, IonHeader, IonToolbar, IonTitle, IonContent]
 })
-export class Tab2Page {
+export class Tab2Page implements OnInit {
   readonly photoService = inject(PhotoService);
 
-  constructor() {}
+  async ngOnInit() {
+    await this.photoService.loadSaved();
+  }
 
   addPhotoToGallery() {
     this.photoService.addNewToGallery();
