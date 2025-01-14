@@ -23,6 +23,9 @@ log.txt
 /platforms
 /plugins
 
+# Capacitor?
+/android
+
 # Compiled output
 /dist
 /tmp
