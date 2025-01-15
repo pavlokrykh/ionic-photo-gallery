@@ -1,7 +1,7 @@
 <ion-header [translucent]="true">
   <ion-toolbar>
     <ion-title>
-      Tab 1
+      Test tab
     </ion-title>
   </ion-toolbar>
 </ion-header>
@@ -13,5 +13,15 @@
     </ion-toolbar>
   </ion-header>
 
-  <app-explore-container name="Tab 1 page"></app-explore-container>
+  <div class="content-wrapper">
+
+    <ion-button id="test-alert">Test alert</ion-button>
+    <ion-alert
+      trigger="test-alert"
+      header="Test alert"
+      message="This is a test alert."
+      [buttons]="alertButtons"/>
+
+  </div>
+
 </ion-content>

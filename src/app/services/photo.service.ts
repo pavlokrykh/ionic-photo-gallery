@@ -22,10 +22,9 @@ export class PhotoService {
     this.platform = platform;
   }
 
-
   // TODO: rewrite with rxjs
 
-  public async addNewToGallery() {
+  async addNewToGallery() {
     const capturedPhoto = await Camera.getPhoto({
       resultType: CameraResultType.Uri,
       source: CameraSource.Camera,
@@ -41,7 +40,7 @@ export class PhotoService {
     });
   }
 
-  public async loadSaved() {
+  async loadSaved() {
     const { value } = await Preferences.get({ key: this.PHOTO_STORAGE });
     this.photos = (value ? JSON.parse(value) : []) as UserPhoto[];
 
@@ -50,14 +49,23 @@ export class PhotoService {
     if (!this.platform.is('hybrid')) {
       for (let photo of this.photos) {
         const readFile = await Filesystem.readFile({
-            path: photo.filepath,
-            directory: Directory.Data
+          path: photo.filepath,
+          directory: Directory.Data
         });
 
         // Web platform only: Load the photo as base64 data
         photo.webviewPath = `data:image/jpeg;base64,${readFile.data}`;
       }
     }
+  }
+
+  async deletePicture(photo: UserPhoto, position: number) {
+    this.photos.splice(position, 1);
+
+    Preferences.set({ key: this.PHOTO_STORAGE, value: JSON.stringify(this.photos) });
+
+    const filename = photo.filepath.substring(photo.filepath.lastIndexOf('/') + 1);
+    await Filesystem.deleteFile({ path: filename, directory: Directory.Data });
   }
 
   private async savePicture(photo: Photo) {
@@ -108,7 +116,7 @@ export class PhotoService {
     const reader = new FileReader();
     reader.onerror = reject;
     reader.onload = () => {
-        resolve(reader.result);
+      resolve(reader.result);
     };
     reader.readAsDataURL(blob);
   });
