@@ -1,7 +1,7 @@
 <ion-header [translucent]="true">
   <ion-toolbar>
     <ion-title>
-      Photo Gallery
+      {{ title }}
     </ion-title>
   </ion-toolbar>
 </ion-header>
@@ -11,8 +11,8 @@
   <ion-grid>
     <ion-row>
       @for (photo of photoService.photos; track $index) {
-        <ion-col size="6">
-          <ion-img [src]="photo.webviewPath" (click)="showActionSheet(photo, $index)" />
+        <ion-col size="6" (click)="showActionSheet(photo, $index)">
+          <ion-img [src]="photo.webviewPath" />
         </ion-col>
       }
     </ion-row>

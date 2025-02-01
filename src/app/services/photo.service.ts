@@ -1,9 +1,11 @@
-import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { inject, Injectable } from '@angular/core';
 import { Camera, CameraResultType, CameraSource, Photo } from '@capacitor/camera';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
 import { Platform } from '@ionic/angular';
+import { from, map, switchMap, take, Observable, forkJoin } from 'rxjs';
 
 export interface UserPhoto {
   filepath: string;
@@ -14,49 +16,63 @@ export interface UserPhoto {
   providedIn: 'root'
 })
 export class PhotoService {
+  private platform = inject(Platform);
+  private http = inject(HttpClient);
+
   public photos: UserPhoto[] = [];
   private PHOTO_STORAGE: string = 'photos';
-  private platform: Platform;
 
-  constructor(platform: Platform) {
-    this.platform = platform;
-  }
-
-  // TODO: rewrite with rxjs
-
-  async addNewToGallery() {
-    const capturedPhoto = await Camera.getPhoto({
+  addNewToGallery() {
+    from(Camera.getPhoto({
       resultType: CameraResultType.Uri,
       source: CameraSource.Camera,
       quality: 100
-    });
-
-    const savedImage = await this.savePicture(capturedPhoto);
-    this.photos.unshift(savedImage);
-
-    Preferences.set({
-      key: this.PHOTO_STORAGE,
-      value: JSON.stringify(this.photos),
+    })).pipe(
+      take(1),
+      switchMap(capturedPhoto => this.savePicture(capturedPhoto))
+    ).subscribe(savedImage => {
+      this.photos.unshift(savedImage);
+      Preferences.set({
+        key: this.PHOTO_STORAGE,
+        value: JSON.stringify(this.photos),
+      });
     });
   }
 
-  async loadSaved() {
-    const { value } = await Preferences.get({ key: this.PHOTO_STORAGE });
-    this.photos = (value ? JSON.parse(value) : []) as UserPhoto[];
+  loadSaved() {
+    return from(Preferences.get({ key: this.PHOTO_STORAGE })).pipe(
+      map(({ value }) => (value ? JSON.parse(value) : []) as UserPhoto[]),
+      switchMap(photos => {
+        this.photos = photos;
 
-    // Easiest way to detect when running on the web:
-    // “when the platform is NOT hybrid, do this”
-    if (!this.platform.is('hybrid')) {
-      for (let photo of this.photos) {
-        const readFile = await Filesystem.readFile({
-          path: photo.filepath,
-          directory: Directory.Data
-        });
+        if (!this.platform.is('hybrid')) {
+          // If we have photos and we're not on hybrid, load them all in parallel
+          if (photos.length > 0) {
+            const readFileObservables = photos.map(photo =>
+              from(Filesystem.readFile({
+                path: photo.filepath,
+                directory: Directory.Data,
+              })).pipe(
+                map(readFile => ({
+                  ...photo,
+                  webviewPath: `data:image/jpeg;base64,${readFile.data}`
+                }))
+              )
+            );
 
-        // Web platform only: Load the photo as base64 data
-        photo.webviewPath = `data:image/jpeg;base64,${readFile.data}`;
-      }
-    }
+            return forkJoin(readFileObservables).pipe(
+              map(updatedPhotos => {
+                this.photos = updatedPhotos;
+                return this.photos;
+              })
+            );
+          }
+        }
+
+        // If we're on hybrid or have no photos, return the photos as-is
+        return from([this.photos]);
+      })
+    );
   }
 
   async deletePicture(photo: UserPhoto, position: number) {
@@ -68,56 +84,60 @@ export class PhotoService {
     await Filesystem.deleteFile({ path: filename, directory: Directory.Data });
   }
 
-  private async savePicture(photo: Photo) {
-    const base64Data = await this.readAsBase64(photo);
-
-    const fileName = Date.now() + '.jpeg';
-    const savedFile = await Filesystem.writeFile({
-      path: fileName,
-      data: base64Data,
-      directory: Directory.Data
-    });
-
-
-    if (this.platform.is('hybrid')) {
-      // Display the new image by rewriting the 'file://' path to HTTP
-      // Details: https://ionicframework.com/docs/building/webview#file-protocol
-      return {
-        filepath: savedFile.uri,
-        webviewPath: Capacitor.convertFileSrc(savedFile.uri),
-      };
-    } else {
-      // Use webPath to display the new image instead of base64 since it's
-      // already loaded into memory
-      return {
-        filepath: fileName,
-        webviewPath: photo.webPath
-      };
-    }
+  private savePicture(photo: Photo) {
+    return this.readAsBase64(photo).pipe(
+      switchMap(base64Data => {
+        const path = Date.now() + '.jpeg';
+        return from(Filesystem.writeFile({
+          path,
+          data: base64Data,
+          directory: Directory.Data
+        })).pipe(
+          map(savedFile => {
+            if (this.platform.is('hybrid')) {
+              // Display the new image by rewriting the 'file://' path to HTTP
+              // Details: https://ionicframework.com/docs/building/webview#file-protocol
+              return {
+                filepath: savedFile.uri,
+                webviewPath: Capacitor.convertFileSrc(savedFile.uri),
+              };
+            } else {
+              // Use webPath to display the new image instead of base64 since it's
+              // already loaded into memory
+              return {
+                filepath: path,
+                webviewPath: photo.webPath
+              };
+            }
+          })
+        );
+      })
+    );
   }
 
-  private async readAsBase64(photo: Photo) {
+  private readAsBase64(photo: Photo) {
     // "hybrid" will detect Cordova or Capacitor
     if (this.platform.is('hybrid')) {
-      const file = await Filesystem.readFile({
-        path: photo.path!
-      });
-
-      return file.data;
+      return from(Filesystem.readFile({ path: photo.path! })).pipe(map(({ data }) => data));
     } else {
-      const response = await fetch(photo.webPath!);
-      const blob = await response.blob();
-
-      return await this.convertBlobToBase64(blob) as string;
+      return this.http.get(photo.webPath!, { responseType: 'blob' }).pipe(
+        switchMap((blob) => this.convertBlobToBase64(blob)),
+      );
     }
   }
 
-  private convertBlobToBase64 = (blob: Blob) => new Promise((resolve, reject) => {
+  private convertBlobToBase64 = (blob: Blob) => new Observable<string>((observer) => {
     const reader = new FileReader();
-    reader.onerror = reject;
+    reader.onerror = error => observer.error(error);
     reader.onload = () => {
-      resolve(reader.result);
+      observer.next(reader.result as string);
+      observer.complete();
     };
     reader.readAsDataURL(blob);
+
+    // Cleanup
+    return () => {
+      reader.abort();
+    };
   });
 }
